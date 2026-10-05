@@ -204,7 +204,6 @@ const handleStream = (
             }
             else if (bufferObj.event === 'agent_thought') {
   // Internal reasoning is intentionally hidden from the customer UI.
-}
             }
             else if (bufferObj.event === 'message_file') {
               onFile?.(bufferObj as VisionFile)
