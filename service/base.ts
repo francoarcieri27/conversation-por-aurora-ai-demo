@@ -159,6 +159,10 @@ const handleStream = (
   let buffer = ''
   let bufferObj: Record<string, any>
   let isFirstMessage = true
+  let thinkBuffer = ''
+let thinkResolved = false
+let hidingThink = false
+  
   function read() {
     let hasError = false
     reader?.read().then((result: any) => {
@@ -195,14 +199,47 @@ const handleStream = (
             }
            console.log('DIFY EVENT:', bufferObj.event, JSON.stringify(bufferObj))
             if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
-              // can not use format here. Because message is splited.
-              onData(unicodeToChar(bufferObj.answer), isFirstMessage, {
-                conversationId: bufferObj.conversation_id,
-                taskId: bufferObj.task_id,
-                messageId: bufferObj.id,
-              })
-              isFirstMessage = false
-            }
+  const chunk = unicodeToChar(bufferObj.answer || '')
+  const meta = {
+    conversationId: bufferObj.conversation_id,
+    taskId: bufferObj.task_id,
+    messageId: bufferObj.id,
+  }
+
+  if (!thinkResolved) {
+    thinkBuffer += chunk
+
+    const trimmed = thinkBuffer.trimStart()
+
+    if (trimmed.startsWith('<think>')) {
+      hidingThink = true
+
+      const endIndex = thinkBuffer.indexOf('</think>')
+
+      if (endIndex !== -1) {
+        const visible = thinkBuffer.slice(endIndex + '</think>'.length)
+        thinkBuffer = ''
+        hidingThink = false
+        thinkResolved = true
+
+        if (visible) {
+          onData(visible, isFirstMessage, meta)
+          isFirstMessage = false
+        }
+      }
+    }
+    else if (trimmed.length >= '<think>'.length) {
+      thinkResolved = true
+      onData(thinkBuffer, isFirstMessage, meta)
+      thinkBuffer = ''
+      isFirstMessage = false
+    }
+  }
+  else if (!hidingThink) {
+    onData(chunk, isFirstMessage, meta)
+    isFirstMessage = false
+  }
+}
             else if (bufferObj.event === 'agent_thought') {
   // Internal reasoning is intentionally hidden from the customer UI.
             }
