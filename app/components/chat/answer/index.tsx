@@ -155,9 +155,6 @@ const Answer: FC<IAnswerProps> = ({
     <div>
       {agent_thoughts?.map((item, index) => (
         <div key={index}>
-          {item.thought && (
-            <StreamdownMarkdown content={item.thought} />
-          )}
           {/* {item.tool} */}
           {/* perhaps not use tool */}
           {!!item.tool && (
