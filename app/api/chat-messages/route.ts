@@ -12,6 +12,5 @@ export async function POST(request: NextRequest) {
   } = body
   const { user } = getInfo(request)
   const res = await client.createChatMessage(inputs, query, user, responseMode, conversationId, files)
-  console.log('DIFY RESPONSE:', res.data)
   return new Response(res.data as any)
 }
