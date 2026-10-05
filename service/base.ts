@@ -193,6 +193,7 @@ const handleStream = (
               onCompleted?.(true)
               return
             }
+           console.log('DIFY EVENT:', bufferObj.event, JSON.stringify(bufferObj))
             if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
               // can not use format here. Because message is splited.
               onData(unicodeToChar(bufferObj.answer), isFirstMessage, {
