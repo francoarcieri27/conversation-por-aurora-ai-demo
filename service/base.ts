@@ -263,7 +263,8 @@ else if (!hidingThink) {
             }
             else if (bufferObj.event === 'node_finished') {
               onNodeFinished?.(bufferObj as NodeFinishedResponse)
-          }
+            }
+            }
         })
         buffer = lines[lines.length - 1]
       }
