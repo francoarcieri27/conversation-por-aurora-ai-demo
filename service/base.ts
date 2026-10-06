@@ -159,9 +159,7 @@ const handleStream = (
   let buffer = ''
   let bufferObj: Record<string, any>
   let isFirstMessage = true
-  // GPT-OSS can stream internal reasoning inside normal message events.
-// Keep the reasoning hidden until the closing </think> tag is received.
-let thinkBuffer = ''
+  let thinkBuffer = ''
 let thinkResolved = false
 let hidingThink = false
   
@@ -199,6 +197,7 @@ let hidingThink = false
               onCompleted?.(true)
               return
             }
+           console.log('DIFY EVENT:', bufferObj.event, JSON.stringify(bufferObj))
             if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
   const chunk = unicodeToChar(bufferObj.answer || '')
   const meta = {
@@ -208,37 +207,38 @@ let hidingThink = false
   }
 
   if (!thinkResolved) {
-  thinkBuffer += chunk
+    thinkBuffer += chunk
 
-  const trimmed = thinkBuffer.trimStart()
+    const trimmed = thinkBuffer.trimStart()
 
-  if (trimmed.startsWith('<think>')) {
-    hidingThink = true
+    if (trimmed.startsWith('<think>')) {
+      hidingThink = true
 
-    const endIndex = thinkBuffer.indexOf('</think>')
+      const endIndex = thinkBuffer.indexOf('</think>')
 
-    if (endIndex !== -1) {
-      const visible = thinkBuffer.slice(endIndex + '</think>'.length)
-      thinkBuffer = ''
-      hidingThink = false
-      thinkResolved = true
+      if (endIndex !== -1) {
+        const visible = thinkBuffer.slice(endIndex + '</think>'.length)
+        thinkBuffer = ''
+        hidingThink = false
+        thinkResolved = true
 
-      if (visible) {
-        onData(visible, isFirstMessage, meta)
-        isFirstMessage = false
+        if (visible) {
+          onData(visible, isFirstMessage, meta)
+          isFirstMessage = false
+        }
       }
     }
+    else if (trimmed.length >= '<think>'.length) {
+      thinkResolved = true
+      onData(thinkBuffer, isFirstMessage, meta)
+      thinkBuffer = ''
+      isFirstMessage = false
+    }
   }
-  else if (trimmed.length >= '<think>'.length) {
-    thinkResolved = true
-    onData(thinkBuffer, isFirstMessage, meta)
-    thinkBuffer = ''
+  else if (!hidingThink) {
+    onData(chunk, isFirstMessage, meta)
     isFirstMessage = false
   }
-}
-else if (!hidingThink) {
-  onData(chunk, isFirstMessage, meta)
-  isFirstMessage = false
 }
             else if (bufferObj.event === 'agent_thought') {
   // Internal reasoning is intentionally hidden from the customer UI.
@@ -264,7 +264,7 @@ else if (!hidingThink) {
             else if (bufferObj.event === 'node_finished') {
               onNodeFinished?.(bufferObj as NodeFinishedResponse)
             }
-            }
+          }
         })
         buffer = lines[lines.length - 1]
       }
