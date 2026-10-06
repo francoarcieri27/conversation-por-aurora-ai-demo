@@ -556,15 +556,21 @@ const Main: FC<IMainProps> = () => {
         setChatList(newListWithAnswer)
       },
       onMessageReplace: (messageReplace) => {
-        setChatList(produce(
-          getChatList(),
-          (draft) => {
-            const current = draft.find(item => item.id === messageReplace.id)
+  setChatList(produce(
+    getChatList(),
+    (draft) => {
+      const current = draft.find(item => item.id === messageReplace.id)
 
-            if (current) { current.content = messageReplace.answer }
-          },
-        ))
-      },
+      if (current) {
+        const cleanAnswer = messageReplace.answer
+          .replace(/<think>[\s\S]*?<\/think>\s*/gi, '')
+          .trim()
+
+        current.content = cleanAnswer
+      }
+    },
+  ))
+},
       onError() {
         setRespondingFalse()
         // role back placeholder answer
