@@ -240,10 +240,6 @@ else if (!hidingThink) {
   onData(chunk, isFirstMessage, meta)
   isFirstMessage = false
 }
-    onData(chunk, isFirstMessage, meta)
-    isFirstMessage = false
-  }
-}
             else if (bufferObj.event === 'agent_thought') {
   // Internal reasoning is intentionally hidden from the customer UI.
             }
