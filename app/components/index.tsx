@@ -556,7 +556,8 @@ const Main: FC<IMainProps> = () => {
         setChatList(newListWithAnswer)
       },
       onMessageReplace: (messageReplace) => {
-  setChatList(produce(
+        console.log('MESSAGE_REPLACE_RAW:', JSON.stringify(messageReplace))
+        setChatList(produce(
     getChatList(),
     (draft) => {
       const current = draft.find(item => item.id === messageReplace.id)
