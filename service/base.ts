@@ -198,7 +198,7 @@ let hidingThink = false
               return
             }
            console.log('DIFY EVENT:', bufferObj.event, JSON.stringify(bufferObj))
-            if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
+         if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
   const chunk = unicodeToChar(bufferObj.answer || '')
   const meta = {
     conversationId: bufferObj.conversation_id,
@@ -206,41 +206,28 @@ let hidingThink = false
     messageId: bufferObj.id,
   }
 
-  if (!thinkResolved) {
-    thinkBuffer += chunk
+  thinkBuffer += chunk
 
-    const trimmed = thinkBuffer.trimStart()
+  const thinkEnd = thinkBuffer.indexOf('</think>')
 
-    if (trimmed.startsWith('<think>')) {
-      hidingThink = true
+  if (thinkEnd !== -1) {
+    const visible = thinkBuffer.slice(thinkEnd + '</think>'.length).trimStart()
 
-      const endIndex = thinkBuffer.indexOf('</think>')
+    thinkBuffer = ''
+    thinkResolved = true
+    hidingThink = false
 
-      if (endIndex !== -1) {
-        const visible = thinkBuffer.slice(endIndex + '</think>'.length)
-        thinkBuffer = ''
-        hidingThink = false
-        thinkResolved = true
-
-        if (visible) {
-          onData(visible, isFirstMessage, meta)
-          isFirstMessage = false
-        }
-      }
-    }
-    else if (trimmed.length >= '<think>'.length) {
-      thinkResolved = true
-      onData(thinkBuffer, isFirstMessage, meta)
-      thinkBuffer = ''
+    if (visible) {
+      onData(visible, isFirstMessage, meta)
       isFirstMessage = false
     }
   }
-  else if (!hidingThink) {
+  else if (thinkResolved) {
     onData(chunk, isFirstMessage, meta)
     isFirstMessage = false
   }
 }
-            else if (bufferObj.event === 'agent_thought') {
+else if (bufferObj.event === 'agent_thought') {
   // Internal reasoning is intentionally hidden from the customer UI.
             }
             else if (bufferObj.event === 'message_file') {
