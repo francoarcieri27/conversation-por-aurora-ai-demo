@@ -1,4 +1,5 @@
 'use client'
+import { cleanAnswer } from '@/lib/stream'
 import type { FC } from 'react'
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -14,12 +15,12 @@ import type { ChatItem, ConversationItem, Feedbacktype, PromptConfig, VisionFile
 import type { FileUpload } from '@/app/components/base/file-uploader-in-attachment/types'
 import { Resolution, TransferMethod, WorkflowRunningStatus } from '@/types/app'
 import Chat from '@/app/components/chat'
-import { setLocaleOnClient } from '@/i18n/client'
+import { getLocaleOnClient, setLocaleOnClient } from '@/i18n/client'
 import useBreakpoints, { MediaType } from '@/hooks/use-breakpoints'
 import Loading from '@/app/components/base/loading'
 import { replaceVarWithValues, userInputsFormToPromptVariables } from '@/utils/prompt'
 import AppUnavailable from '@/app/components/app-unavailable'
-import { API_KEY, APP_ID, APP_INFO, isShowPrompt, promptTemplate } from '@/config'
+import { APP_ID, APP_INFO, isShowPrompt, promptTemplate } from '@/config'
 import type { Annotation as AnnotationType } from '@/types/log'
 import { addFileInfos, sortAgentSorts } from '@/utils/tools'
 
@@ -31,7 +32,7 @@ const Main: FC<IMainProps> = () => {
   const { t } = useTranslation()
   const media = useBreakpoints()
   const isMobile = media === MediaType.mobile
-  const hasSetAppConfig = APP_ID && API_KEY
+  const hasSetAppConfig = !!APP_ID
 
   /*
   * app info
@@ -51,7 +52,7 @@ const Main: FC<IMainProps> = () => {
   const [fileConfig, setFileConfig] = useState<FileUpload | undefined>()
 
   useEffect(() => {
-    if (APP_INFO?.title) { document.title = `${APP_INFO.title} - Powered by Dify` }
+    if (APP_INFO?.title) { document.title = `${APP_INFO.title} | Salón Aurora` }
   }, [APP_INFO?.title])
 
   // onData change thought (the produce obj). https://github.com/immerjs/immer/issues/576
@@ -140,7 +141,7 @@ const Main: FC<IMainProps> = () => {
           })
           newChatList.push({
             id: item.id,
-            content: item.answer,
+            content: cleanAnswer(item.answer || ''),
             agent_thoughts: addFileInfos(item.agent_thoughts ? sortAgentSorts(item.agent_thoughts) : item.agent_thoughts, item.message_files),
             feedback: item.feedback,
             isAnswer: true,
@@ -228,7 +229,8 @@ const Main: FC<IMainProps> = () => {
     }
     (async () => {
       try {
-        const [conversationData, appParams] = await Promise.all([fetchConversations(), fetchAppParams()])
+        const appParams = await fetchAppParams()
+        const conversationData = await fetchConversations()
         // handle current conversation id
         const { data: conversations, error } = conversationData as { data: ConversationItem[], error: string }
         if (error) {
@@ -242,7 +244,7 @@ const Main: FC<IMainProps> = () => {
 
         // fetch new conversation info
         const { user_input_form, opening_statement: introduction, file_upload, system_parameters, suggested_questions = [] }: any = appParams
-        setLocaleOnClient(APP_INFO.default_language, true)
+        setLocaleOnClient(getLocaleOnClient(), true)
         setNewConversationInfo({
           name: t('app.chat.newChatDefaultName'),
           introduction,
@@ -263,16 +265,17 @@ const Main: FC<IMainProps> = () => {
         const outerFileUploadEnabled = !!file_upload?.enabled
         setVisionConfig({
           ...file_upload?.image,
+          transfer_methods: [TransferMethod.local_file],
           enabled: !!(outerFileUploadEnabled && file_upload?.image?.enabled),
-          image_file_size_limit: system_parameters?.system_parameters || 0,
+          image_file_size_limit: Math.min(system_parameters?.image_file_size_limit || 4, 4),
         })
         setFileConfig({
           enabled: outerFileUploadEnabled,
-          allowed_file_types: file_upload?.allowed_file_types,
-          allowed_file_extensions: file_upload?.allowed_file_extensions,
-          allowed_file_upload_methods: file_upload?.allowed_file_upload_methods,
-          number_limits: file_upload?.number_limits,
-          fileUploadConfig: file_upload?.fileUploadConfig,
+          allowed_file_types: (file_upload?.allowed_file_types || []).filter((type: string) => ['image', 'document'].includes(type)),
+          allowed_file_extensions: ['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.txt'],
+          allowed_file_upload_methods: [TransferMethod.local_file],
+          number_limits: Math.min(file_upload?.number_limits || 3, 3),
+          fileUploadConfig: { ...file_upload?.fileUploadConfig, image_file_size_limit: 4, file_size_limit: 4 },
         })
         setConversationList(conversations as ConversationItem[])
 
@@ -459,17 +462,18 @@ const Main: FC<IMainProps> = () => {
         })
       },
       async onCompleted(hasError?: boolean) {
-        if (hasError) { return }
+        if (hasError) { setRespondingFalse(); return }
 
-        if (getConversationIdChangeBecauseOfNew()) {
-          const { data: allConversations }: any = await fetchConversations()
-          const newItem: any = await generationConversationName(allConversations[0].id)
-
-          const newAllConversations = produce(allConversations, (draft: any) => {
-            draft[0].name = newItem.name
-          })
-          setConversationList(newAllConversations as any)
-        }
+        try {
+          if (getConversationIdChangeBecauseOfNew() && tempNewConversationId) {
+            const { data: allConversations }: any = await fetchConversations()
+            setConversationList(allConversations)
+            try {
+              const renamed: any = await generationConversationName(tempNewConversationId)
+              setConversationList(allConversations.map((item: ConversationItem) => item.id === tempNewConversationId ? { ...item, name: renamed.name } : item))
+            } catch { /* A title failure must not discard a successful answer. */ }
+          }
+        } catch { notify({ type: 'error', message: t('common.api.error') || 'No se pudo actualizar el historial.' }) } finally { setRespondingFalse() }
         setConversationIdChangeBecauseOfNew(false)
         resetNewConversationInputs()
         setChatNotStarted()
@@ -556,27 +560,21 @@ const Main: FC<IMainProps> = () => {
         setChatList(newListWithAnswer)
       },
       onMessageReplace: (messageReplace) => {
-        console.log('MESSAGE_REPLACE_RAW:', JSON.stringify(messageReplace))
         setChatList(produce(
-    getChatList(),
-    (draft) => {
-      const current = draft.find(item => item.id === messageReplace.id)
+          getChatList(),
+          (draft) => {
+            const current = draft.find(item => item.id === messageReplace.id)
 
-      if (current) {
-        const cleanAnswer = messageReplace.answer
-          .replace(/<think>[\s\S]*?<\/think>\s*/gi, '')
-          .trim()
-
-        current.content = cleanAnswer
-      }
-    },
-  ))
-},
+            if (current) { current.content = cleanAnswer(messageReplace.answer) }
+          },
+        ))
+      },
       onError() {
         setRespondingFalse()
         // role back placeholder answer
         setChatList(produce(getChatList(), (draft) => {
-          draft.splice(draft.findIndex(item => item.id === placeholderAnswerId), 1)
+          const index = draft.findIndex(item => item.id === placeholderAnswerId)
+          if (index >= 0) draft.splice(index, 1)
         }))
       },
       onWorkflowStarted: ({ workflow_run_id, task_id }) => {
@@ -655,7 +653,7 @@ const Main: FC<IMainProps> = () => {
     )
   }
 
-  if (appUnavailable) { return <AppUnavailable isUnknownReason={isUnknownReason} errMessage={!hasSetAppConfig ? 'Please set APP_ID and API_KEY in config/index.tsx' : ''} /> }
+  if (appUnavailable) { return <AppUnavailable isUnknownReason={isUnknownReason} errMessage={!hasSetAppConfig ? 'El asistente está en configuración. / The assistant is being configured.' : ''} /> }
 
   if (!APP_ID || !APP_INFO || !promptConfig) { return <Loading type='app' /> }
 
