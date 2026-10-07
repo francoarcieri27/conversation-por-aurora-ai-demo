@@ -1,13 +1,11 @@
 import type { AppInfo } from '@/types/app'
-export const APP_ID = `${process.env.NEXT_PUBLIC_APP_ID}`
-export const API_KEY = `${process.env.DIFY_API_KEY}`
-export const API_URL = `${process.env.NEXT_PUBLIC_API_URL}`
+export const APP_ID = process.env.NEXT_PUBLIC_APP_ID || 'a2ebb74c-a6b3-4f4a-a9f8-6b9f64e652fc'
 export const APP_INFO: AppInfo = {
-  title: 'Chat APP',
-  description: '',
-  copyright: '',
-  privacy_policy: '',
-  default_language: 'en',
+  title: 'Aurora AI',
+  description: 'Asistente de Salón Aurora · Salon Aurora assistant',
+  copyright: 'Aurora AI',
+  privacy_policy: '/privacy',
+  default_language: 'es',
   disable_session_same_site: false, // set it to true if you want to embed the chatbot in an iframe
 }
 

@@ -1,3 +1,5 @@
+import type { Metadata } from 'next'
+export const metadata: Metadata = { title: 'Aurora AI | Salón Aurora', description: 'Consulta servicios y solicita tu cita con el asistente de Salón Aurora.' }
 import { getLocaleOnServer } from '@/i18n/server'
 
 import './styles/globals.css'

@@ -27,9 +27,7 @@ import { useToastContext } from '@/app/components/base/toast'
 import { TransferMethod } from '@/types/app'
 import { formatFileSize } from '@/utils/format'
 
-const uploadRemoteFileInfo = () => {
-  console.log('TODO')
-}
+const uploadRemoteFileInfo = (_url: string, _isPublic?: boolean): Promise<{ name: string, mime_type: string, size: number, id: string, url: string }> => Promise.reject(new Error('Please upload a local file'))
 
 export const useFileSizeLimit = (fileUploadConfig?: FileUploadConfigResponse) => {
   const imgSizeLimit = Number(fileUploadConfig?.image_file_size_limit) * 1024 * 1024 || IMG_SIZE_LIMIT

@@ -11,11 +11,12 @@ import type { AppInfo } from '@/types/app'
 import Button from '@/app/components/base/button'
 
 export const AppInfoComp: FC<{ siteInfo: AppInfo }> = ({ siteInfo }) => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   return (
     <div>
       <div className='flex items-center py-2 text-xl font-medium text-gray-700 rounded-md'>👏 {t('app.common.welcome')} {siteInfo.title}</div>
-      <p className='text-sm text-gray-500'>{siteInfo.description}</p>
+      <p className='text-sm text-gray-500'>{i18n.language === 'en' ? 'Salon Aurora assistant · Services and appointment requests' : 'Asistente de Salón Aurora · Servicios y solicitudes de cita'}</p>
+      <p className='mt-3 text-xs text-amber-800'>{i18n.language === 'en' ? 'Demo with fictional salon data. This does not confirm real appointments.' : 'Demo con datos ficticios del salón. No confirma citas reales.'}</p>
     </div>
   )
 }
