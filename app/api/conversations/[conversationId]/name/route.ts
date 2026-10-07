@@ -1,19 +1,16 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { client, getInfo } from '@/app/api/utils/common'
-
-export async function POST(request: NextRequest, { params }: {
-  params: Promise<{ conversationId: string }>
-}) {
-  const body = await request.json()
-  const {
-    auto_generate,
-    name,
-  } = body
-  const { conversationId } = await params
-  const { user } = getInfo(request)
-
-  // auto generate name
-  const { data } = await client.renameConversation(conversationId, name, user, auto_generate)
-  return NextResponse.json(data)
+import { ApiError, dify, errorResponse, getInfo, rateLimit, requireSameOrigin, setSession, validId } from '@/app/api/utils/common'
+export async function POST(request: NextRequest, { params }: { params: Promise<{ conversationId: string }> }) {
+  try {
+    requireSameOrigin(request)
+    const { conversationId: id } = await params
+    validId(id)
+    const body = await request.json().catch(() => { throw new ApiError(400, 'invalid_json', 'Invalid JSON') })
+    if (body.name && (typeof body.name !== 'string' || body.name.length > 100)) throw new ApiError(400, 'invalid_name', 'Invalid name')
+    const { user, sessionId } = getInfo(request)
+    rateLimit(user)
+    const res = await dify(`conversations/${id}/name`, user, { method: 'POST', body: { name: body.name, auto_generate: body.auto_generate === true } })
+    return NextResponse.json(await res.json(), { headers: setSession(sessionId) })
+  } catch (error) { return errorResponse(error) }
 }
