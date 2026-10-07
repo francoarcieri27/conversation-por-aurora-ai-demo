@@ -1,3 +1,4 @@
+import { consumeSSE, visibleAnswer } from '@/lib/stream'
 import { API_PREFIX } from '@/config'
 import Toast from '@/app/components/base/toast'
 import type { AnnotationReply, MessageEnd, MessageReplace, ThoughtItem } from '@/app/components/chat/type'
@@ -133,13 +134,7 @@ interface IOtherOptions {
   onNodeFinished?: IOnNodeFinished
 }
 
-function unicodeToChar(text: string) {
-  return text.replace(/\\u[0-9a-f]{4}/g, (_match, p1) => {
-    return String.fromCharCode(parseInt(p1, 16))
-  })
-}
-
-const handleStream = (
+const handleStream = async (
   response: Response,
   onData: IOnData,
   onCompleted?: IOnCompleted,
@@ -152,201 +147,46 @@ const handleStream = (
   onNodeStarted?: IOnNodeStarted,
   onNodeFinished?: IOnNodeFinished,
 ) => {
-  if (!response.ok) { throw new Error('Network response was not ok') }
-
-  const reader = response.body?.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-  let bufferObj: Record<string, any>
-  let isFirstMessage = true
-  let thinkBuffer = ''
-let thinkResolved = false
-let hidingThink = false
-  
-  function read() {
-    let hasError = false
-    reader?.read().then((result: any) => {
-      if (result.done) {
-        onCompleted && onCompleted()
-        return
-      }
-      buffer += decoder.decode(result.value, { stream: true })
-      const lines = buffer.split('\n')
-      try {
-        lines.forEach((message) => {
-          if (message.startsWith('data: ')) { // check if it starts with data:
-            try {
-              bufferObj = JSON.parse(message.substring(6)) as Record<string, any>// remove data: and parse as json
-            }
-            catch (e) {
-              // mute handle message cut off
-              onData('', isFirstMessage, {
-                conversationId: bufferObj?.conversation_id,
-                messageId: bufferObj?.message_id,
-              })
-              return
-            }
-            if (bufferObj.status === 400 || !bufferObj.event) {
-              onData('', false, {
-                conversationId: undefined,
-                messageId: '',
-                errorMessage: bufferObj?.message,
-                errorCode: bufferObj?.code,
-              })
-              hasError = true
-              onCompleted?.(true)
-              return
-            }
-           console.log('DIFY EVENT:', bufferObj.event, JSON.stringify(bufferObj))
-         if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
-  const chunk = unicodeToChar(bufferObj.answer || '')
-  const meta = {
-    conversationId: bufferObj.conversation_id,
-    taskId: bufferObj.task_id,
-    messageId: bufferObj.id,
-  }
-
-  thinkBuffer += chunk
-
-  const thinkEnd = thinkBuffer.indexOf('</think>')
-
-  if (thinkEnd !== -1) {
-    const visible = thinkBuffer.slice(thinkEnd + '</think>'.length).trimStart()
-
-    thinkBuffer = ''
-    thinkResolved = true
-    hidingThink = false
-
-    if (visible) {
-      onData(visible, isFirstMessage, meta)
-      isFirstMessage = false
-    }
-  }
-  else if (thinkResolved) {
-    onData(chunk, isFirstMessage, meta)
-    isFirstMessage = false
-  }
-}
-else if (bufferObj.event === 'agent_thought') {
-  // Internal reasoning is intentionally hidden from the customer UI.
-            }
-            else if (bufferObj.event === 'message_file') {
-              onFile?.(bufferObj as VisionFile)
-            }
-            else if (bufferObj.event === 'message_end') {
-              onMessageEnd?.(bufferObj as MessageEnd)
-            }
-            else if (bufferObj.event === 'message_replace') {
-              onMessageReplace?.(bufferObj as MessageReplace)
-            }
-            else if (bufferObj.event === 'workflow_started') {
-              onWorkflowStarted?.(bufferObj as WorkflowStartedResponse)
-            }
-            else if (bufferObj.event === 'workflow_finished') {
-              onWorkflowFinished?.(bufferObj as WorkflowFinishedResponse)
-            }
-            else if (bufferObj.event === 'node_started') {
-              onNodeStarted?.(bufferObj as NodeStartedResponse)
-            }
-            else if (bufferObj.event === 'node_finished') {
-              onNodeFinished?.(bufferObj as NodeFinishedResponse)
-            }
-          }
-        })
-        buffer = lines[lines.length - 1]
-      }
-      catch (e) {
-        onData('', false, {
-          conversationId: undefined,
-          messageId: '',
-          errorMessage: `${e}`,
-        })
-        hasError = true
-        onCompleted?.(true)
-        return
-      }
-      if (!hasError) { read() }
-    })
-  }
-  read()
+  const filter = visibleAnswer()
+  let first = true
+  let ended = false
+  let meta: IOnDataMoreInfo = { messageId: '' }
+  await consumeSSE(response, (event) => {
+    if (event.event === 'message' || event.event === 'agent_message') {
+      meta = { conversationId: event.conversation_id, taskId: event.task_id, messageId: event.message_id || event.id }
+      const text = filter.push(event.answer || '')
+      // Metadata is needed even when the visible answer is still buffered.
+      onData(text, first, meta)
+      first = false
+    } else if (event.event === 'message_end') { ended = true; onMessageEnd?.(event as MessageEnd) }
+    else if (event.event === 'message_replace') onMessageReplace?.({ ...event, id: event.id || event.message_id, answer: event.answer.replace(/<think>[\s\S]*?<\/think>/g, '') } as MessageReplace)
+    else if (event.event === 'message_file') onFile?.(event as VisionFile)
+    // Workflow traces contain internal prompts and customer data; keep them out of the UI.
+  })
+  if (!ended) throw new Error('Respuesta interrumpida. Inténtalo de nuevo. / Response interrupted. Please retry.')
+  const remaining = filter.finish()
+  if (remaining) onData(remaining, first, meta)
+  onCompleted?.(false)
 }
 
-const baseFetch = (url: string, fetchOptions: any, { needAllResponseContent }: IOtherOptions) => {
-  const options = Object.assign({}, baseOptions, fetchOptions)
-
-  const urlPrefix = API_PREFIX
-
-  let urlWithPrefix = `${urlPrefix}${url.startsWith('/') ? url : `/${url}`}`
-
-  const { method, params, body } = options
-  // handle query
-  if (method === 'GET' && params) {
-    const paramsArray: string[] = []
-    Object.keys(params).forEach(key =>
-      paramsArray.push(`${key}=${encodeURIComponent(params[key])}`),
-    )
-    if (urlWithPrefix.search(/\?/) === -1) { urlWithPrefix += `?${paramsArray.join('&')}` }
-
-    else { urlWithPrefix += `&${paramsArray.join('&')}` }
-
+const baseFetch = async (url: string, fetchOptions: any, { needAllResponseContent }: IOtherOptions) => {
+  const options = { ...baseOptions, ...fetchOptions }
+  let path = `${API_PREFIX}${url.startsWith('/') ? url : `/${url}`}`
+  if (options.params) {
+    path += `?${new URLSearchParams(options.params)}`
     delete options.params
   }
-
-  if (body) { options.body = JSON.stringify(body) }
-
-  // Handle timeout
-  return Promise.race([
-    new Promise((resolve, reject) => {
-      setTimeout(() => {
-        reject(new Error('request timeout'))
-      }, TIME_OUT)
-    }),
-    new Promise((resolve, reject) => {
-      globalThis.fetch(urlWithPrefix, options)
-        .then((res: any) => {
-          const resClone = res.clone()
-          // Error handler
-          if (!/^(2|3)\d{2}$/.test(res.status)) {
-            try {
-              const bodyJson = res.json()
-              switch (res.status) {
-                case 401: {
-                  Toast.notify({ type: 'error', message: 'Invalid token' })
-                  return
-                }
-                default:
-                  // eslint-disable-next-line no-new
-                  new Promise(() => {
-                    bodyJson.then((data: any) => {
-                      Toast.notify({ type: 'error', message: data.message })
-                    })
-                  })
-              }
-            }
-            catch (e) {
-              Toast.notify({ type: 'error', message: `${e}` })
-            }
-
-            return Promise.reject(resClone)
-          }
-
-          // handle delete api. Delete api not return content.
-          if (res.status === 204) {
-            resolve({ result: 'success' })
-            return
-          }
-
-          // return data
-          const data = options.headers.get('Content-type') === ContentType.download ? res.blob() : res.json()
-
-          resolve(needAllResponseContent ? resClone : data)
-        })
-        .catch((err) => {
-          Toast.notify({ type: 'error', message: err })
-          reject(err)
-        })
-    }),
-  ])
+  if (options.body) options.body = JSON.stringify(options.body)
+  const res = await fetch(path, { ...options, signal: AbortSignal.timeout(TIME_OUT) })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    const error = new Error(data.message || 'No se pudo completar la solicitud. / Request failed.')
+    Object.assign(error, { status: res.status })
+    throw error
+  }
+  if (needAllResponseContent) return res
+  if (res.status === 204) return { result: 'success' }
+  return res.json()
 }
 
 export const upload = (fetchOptions: any): Promise<any> => {
@@ -378,59 +218,25 @@ export const upload = (fetchOptions: any): Promise<any> => {
   })
 }
 
-export const ssePost = (
-  url: string,
-  fetchOptions: any,
-  {
-    onData,
-    onCompleted,
-    onThought,
-    onFile,
-    onMessageEnd,
-    onMessageReplace,
-    onWorkflowStarted,
-    onWorkflowFinished,
-    onNodeStarted,
-    onNodeFinished,
-    onError,
-  }: IOtherOptions,
-) => {
-  const options = Object.assign({}, baseOptions, {
-    method: 'POST',
-  }, fetchOptions)
-
-  const urlPrefix = API_PREFIX
-  const urlWithPrefix = `${urlPrefix}${url.startsWith('/') ? url : `/${url}`}`
-
-  const { body } = options
-  if (body) { options.body = JSON.stringify(body) }
-
-  globalThis.fetch(urlWithPrefix, options)
-    .then((res: any) => {
-      if (!/^(2|3)\d{2}$/.test(res.status)) {
-        // eslint-disable-next-line no-new
-        new Promise(() => {
-          res.json().then((data: any) => {
-            Toast.notify({ type: 'error', message: data.message || 'Server Error' })
-          })
-        })
-        onError?.('Server Error')
-        return
-      }
-      return handleStream(res, (str: string, isFirstMessage: boolean, moreInfo: IOnDataMoreInfo) => {
-        if (moreInfo.errorMessage) {
-          Toast.notify({ type: 'error', message: moreInfo.errorMessage })
-          return
-        }
-        onData?.(str, isFirstMessage, moreInfo)
-      }, () => {
-        onCompleted?.()
-      }, onThought, onMessageEnd, onMessageReplace, onFile, onWorkflowStarted, onWorkflowFinished, onNodeStarted, onNodeFinished)
+export const ssePost = async (url: string, fetchOptions: any, options: IOtherOptions) => {
+  const controller = new AbortController()
+  options.getAbortController?.(controller)
+  try {
+    const res = await fetch(`${API_PREFIX}${url.startsWith('/') ? url : `/${url}`}`, {
+      ...baseOptions, ...fetchOptions, method: 'POST',
+      body: JSON.stringify(fetchOptions.body), signal: controller.signal,
     })
-    .catch((e) => {
-      Toast.notify({ type: 'error', message: e })
-      onError?.(e)
-    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.message || 'Servicio no disponible. / Service unavailable.')
+    }
+    await handleStream(res, options.onData!, options.onCompleted, options.onThought, options.onMessageEnd, options.onMessageReplace, options.onFile)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Request failed'
+    Toast.notify({ type: 'error', message })
+    options.onError?.(message)
+    options.onCompleted?.(true)
+  }
 }
 
 export const request = (url: string, options = {}, otherOptions?: IOtherOptions) => {
