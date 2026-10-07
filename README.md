@@ -1,80 +1,54 @@
-# Conversation Web App Template
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Aurora AI — Salón Aurora demo
 
-## Config App
-Create a file named `.env.local` in the current directory and copy the contents from `.env.example`. Setting the following content:
-```
-# APP ID: This is the unique identifier for your app. You can find it in the app's detail page URL. 
-# For example, in the URL `https://cloud.dify.ai/app/xxx/workflow`, the value `xxx` is your APP ID.
-NEXT_PUBLIC_APP_ID=
+Spanish/English chatbot powered by the existing Dify app and deployed through the existing Vercel Git integration. This repository is the salon chatbot, not the separate BERZIA fitness application.
 
-# APP API Key: This is the key used to authenticate your app's API requests. 
-# You can generate it on the app's "API Access" page by clicking the "API Key" button in the top-right corner.
-NEXT_PUBLIC_APP_KEY=
+## Run and deploy
 
-# APP URL: This is the API's base URL. If you're using the Dify cloud service, set it to: https://api.dify.ai/v1.
-NEXT_PUBLIC_API_URL=
-```
+Use Node 22.6+ (CI uses Node 22), then:
 
-Config more in `config/index.ts` file:   
-```js
-export const APP_INFO: AppInfo = {
-  title: 'Chat APP',
-  description: '',
-  copyright: '',
-  privacy_policy: '',
-  default_language: 'zh-Hans'
-}
-
-export const isShowPrompt = true
-export const promptTemplate = ''
-```
-
-## Getting Started
-First, install dependencies:
-```bash
-npm install
-# or
-yarn
-# or
-pnpm install
-```
-
-Then, run the development server:
-
-```bash
+```sh
+npm ci --legacy-peer-deps
+cp .env.example .env.local
+# Set DIFY_API_KEY to the private API Access key of the published Dify chatflow.
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-```
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## Using Docker
-
-```
-docker build . -t <DOCKER_HUB_REPO>/webapp-conversation:latest
-# now you can access it in port 3000
-docker run -p 3000:3000 <DOCKER_HUB_REPO>/webapp-conversation:latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Vercel project: `aurora-ai4/conversation-por-aurora-ai-demo`. Keep its existing GitHub connection and production branch `main`.
 
-## Learn More
+| Variable | Value / purpose |
+| --- | --- |
+| `NEXT_PUBLIC_APP_ID` | `a2ebb74c-a6b3-4f4a-a9f8-6b9f64e652fc` |
+| `DIFY_API_KEY` | Private Dify app API Access key, server only |
+| `DIFY_API_URL` | `https://api.dify.ai/v1` (default) |
+| `SESSION_SECRET` | Optional independent random signing secret of at least 32 characters; the private Dify key is the fallback |
 
-To learn more about Next.js, take a look at the following resources:
+Never use `NEXT_PUBLIC_APP_KEY`. Remove any old public-key variable from Vercel and rotate it if it was shipped to browsers. Do not commit credentials. Updating an environment variable requires redeployment. `NEXT_PUBLIC_API_URL` remains accepted server-side for compatibility, but new deployments should use `DIFY_API_URL`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Verification
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+```sh
+npm test
+npm run typecheck
+npm audit --omit=dev --audit-level=moderate
+npm run build
+node scripts/smoke.mjs
+```
 
-## Deploy on Vercel
+The smoke script runs the production build against a local mock Dify service. It verifies proxy behavior and controls without claiming to validate the actual Dify workflow. `/api/health` reports configuration presence only; a successful real chat is required to validate Dify and its credits.
 
-> ⚠️ If you are using [Vercel Hobby](https://vercel.com/pricing), your message will be truncated due to the limitation of vercel.
+## Behavior
 
+- Private server-side Dify requests; no key is exported by browser configuration.
+- Incremental SSE parsing handles split JSON, UTF-8 and CRLF frames. Server-side output removes internal reasoning and workflow traces; history and message replacements are also cleaned.
+- Signed, HttpOnly, Secure-in-production session cookie with root path and 30-day lifetime. Invalid or unsigned legacy cookies create a new session, so older demo history may disappear from the UI during the migration; no Dify records are deleted.
+- The language selector changes interface language without clearing the conversation or rewriting messages. Assistant replies follow the user's requested language, as configured in Dify. It does not translate existing messages.
+- Input validation, same-origin checks, upload limits and per-instance burst protection. Files are uploaded locally (JPG/PNG/WEBP/PDF/TXT, up to 4 MB, max 3 attachments); URL uploads are intentionally unavailable.
+- Upstream failures use non-success HTTP statuses and generic messages rather than empty successful responses or internal errors.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Launch status
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+This is a demo with fictional salon services and prices. Do not describe it as a production booking system: real appointment persistence, availability, cancellation and human handoff must be validated against the salon's actual system. Read `LAUNCH_AUDIT.md` for evidence and remaining launch requirements.
+
+The in-memory burst limiter is best-effort for each runtime instance, not a distributed quota or billing control. Set Vercel firewall / durable rate controls and Dify spending limits before an unrestricted public rollout.
+
+The privacy page is a demo disclosure, not the salon's final privacy notice. Add the real operator identity, contact, retention and deletion process before accepting real customer data.
